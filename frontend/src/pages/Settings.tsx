@@ -5,6 +5,7 @@ import {
   fetchApiKeys, addApiKey, deleteApiKey, updateApiKey,
   type SettingsInfo, type ApiKeyInfo,
 } from "../api"
+import { Copy, Trash2, Plus, Loader2 } from "lucide-react"
 
 export default function Settings() {
   const [settings, setSettings] = useState<SettingsInfo | null>(null)
@@ -25,11 +26,11 @@ export default function Settings() {
     return () => ctrl.abort()
   }, [toast])
 
-  if (loading) return <div className="text-sm text-kawaii-text-md">{"\u52A0\u8F7D\u4E2D..."}</div>
-  if (!settings) return <div className="text-sm text-kawaii-pink">{"\u52A0\u8F7D\u5931\u8D25"}</div>
+  if (loading) return <div className="py-12 text-center text-sm text-text-muted"><Loader2 className="mx-auto h-5 w-5 animate-spin" /></div>
+  if (!settings) return <div className="text-sm text-danger">加载失败</div>
 
   const save = async (fields: Record<string, unknown>) => {
-    try { setSettings(await updateSettings(fields)); toast("\u5DF2\u4FDD\u5B58") }
+    try { setSettings(await updateSettings(fields)); toast("已保存") }
     catch (e) { toast(getErrorMessage(e), "error") }
   }
 
@@ -38,182 +39,171 @@ export default function Settings() {
     try {
       const entry = await addApiKey(newKeyName.trim())
       setApiKeys((p) => [...p, entry]); setNewKeyName("")
-      toast("\u5DF2\u521B\u5EFA API Key")
+      toast("已创建 API Key")
     } catch (e) { toast(getErrorMessage(e), "error") }
   }
-
   const handleDeleteApiKey = async (id: string) => {
-    if (!confirm("\u786E\u5B9A\u5220\u9664\uFF1F")) return
-    try { await deleteApiKey(id); setApiKeys((p) => p.filter((k) => k.id !== id)); toast("\u5DF2\u5220\u9664") }
+    if (!confirm("确定删除？")) return
+    try { await deleteApiKey(id); setApiKeys((p) => p.filter((k) => k.id !== id)); toast("已删除") }
     catch (e) { toast(getErrorMessage(e), "error") }
   }
-
   const handleToggleAutoContinue = async (ak: ApiKeyInfo) => {
     try {
       const updated = await updateApiKey(ak.id, { auto_continue: !ak.auto_continue })
       setApiKeys((p) => p.map((k) => (k.id === ak.id ? updated : k)))
-      toast(ak.auto_continue ? "已关闭代理续传" : "已开启代理续传")
+      toast(ak.auto_continue ? "已关闭续传" : "已开启续传")
     } catch (e) { toast(getErrorMessage(e), "error") }
   }
-
   const copyKey = async (key: string) => {
     try {
-      if (navigator.clipboard) { await navigator.clipboard.writeText(key) }
-      else { const t = document.createElement("textarea"); t.value = key; document.body.appendChild(t); t.select(); document.execCommand("copy"); document.body.removeChild(t) }
-      toast("\u5DF2\u590D\u5236")
+      await navigator.clipboard.writeText(key)
+      toast("已复制")
     } catch (e) { toast(getErrorMessage(e), "error") }
   }
 
   const MODES = [
-    ["round_robin", "\u8F6E\u8BE2\u5747\u8861"],
-    ["weighted_round_robin", "\u52A0\u6743\u8F6E\u8BE2"],
-    ["ordered_fallback", "\u987A\u5E8F\u964D\u7EA7"],
+    ["round_robin", "轮询均衡"],
+    ["weighted_round_robin", "加权轮询"],
+    ["ordered_fallback", "顺序降级"],
   ] as const
 
+  const inputCls = "w-full rounded-lg border border-border bg-surface-3 px-3 py-2.5 text-sm text-text-primary outline-none transition-colors placeholder:text-text-dim focus:border-brand/50 focus:ring-2 focus:ring-brand/20"
+
   return (
-    <div>
-      <h1 className="text-2xl font-bold mb-6 kawaii-gradient-text">{"\u2699\uFE0F \u8BBE\u7F6E"}</h1>
-      <div className="space-y-6 max-w-2xl">
+    <div className="animate-fade-in space-y-6 max-w-2xl">
+      <h1 className="text-xl font-bold text-text-primary">设置</h1>
 
-        {/* Rotation Mode */}
-        <section className="bg-white rounded-kawaii-lg shadow-kawaii-md p-6">
-          <h2 className="text-sm font-semibold text-kawaii-text-md mb-3">{"\u8F6E\u8BE2\u6A21\u5F0F"}</h2>
-          <div className="flex gap-2 flex-wrap">
-            {MODES.map(([mode, label]) => (
-              <button
-                key={mode}
-                onClick={() => save({ rotation_mode: mode })}
-                className={`px-4 py-2 rounded-full text-sm font-medium transition-all duration-300 hover:-translate-y-0.5 ${
-                  settings.rotation_mode === mode
-                    ? "text-kawaii-text shadow-kawaii-sm"
-                    : "bg-kawaii-cream text-kawaii-text-md border-2 border-kawaii-pink-light hover:bg-kawaii-pink-light"
+      {/* Rotation Mode */}
+      <section className="card">
+        <h2 className="card-title">轮询模式</h2>
+        <div className="flex gap-2 flex-wrap">
+          {MODES.map(([mode, label]) => (
+            <button
+              key={mode}
+              onClick={() => save({ rotation_mode: mode })}
+              className={`cursor-pointer rounded-lg px-4 py-2 text-sm font-medium transition-all ${
+                settings.rotation_mode === mode
+                  ? "bg-brand text-white shadow-sm"
+                  : "border border-border bg-surface-3 text-text-secondary hover:bg-surface-4 hover:text-text-primary"
+              }`}
+            >{label}</button>
+          ))}
+        </div>
+      </section>
+
+      {/* Proxy Strategy */}
+      <section className="card">
+        <h2 className="card-title">代理策略</h2>
+        <div className="grid grid-cols-3 gap-4">
+          <div>
+            <label className="field-label">最大重试</label>
+            <input type="number" min={0} max={10} className={inputCls}
+              value={settings.max_retries}
+              onChange={(e) => setSettings({ ...settings, max_retries: +e.target.value })}
+              onBlur={() => save({ max_retries: settings.max_retries })} />
+          </div>
+          <div>
+            <label className="field-label">黑名单阈值</label>
+            <input type="number" min={0} max={100} className={inputCls}
+              value={settings.blacklist_threshold}
+              onChange={(e) => setSettings({ ...settings, blacklist_threshold: +e.target.value })}
+              onBlur={() => save({ blacklist_threshold: settings.blacklist_threshold })} />
+          </div>
+          <div>
+            <label className="field-label">验证间隔(分)</label>
+            <input type="number" min={1} max={60} className={inputCls}
+              value={settings.validation_interval}
+              onChange={(e) => setSettings({ ...settings, validation_interval: +e.target.value })}
+              onBlur={() => save({ validation_interval: settings.validation_interval })} />
+          </div>
+        </div>
+        <div className="grid grid-cols-2 gap-4 mt-4">
+          <div>
+            <label className="field-label">自动续传次数</label>
+            <input type="number" min={0} max={10} className={inputCls}
+              value={settings.max_continuations}
+              onChange={(e) => setSettings({ ...settings, max_continuations: +e.target.value })}
+              onBlur={() => save({ max_continuations: settings.max_continuations })} />
+            <span className="text-xs text-text-dim mt-1 block">流式截断时自动续传，0=禁用</span>
+          </div>
+          <div>
+            <label className="field-label">Token 上限</label>
+            <input type="number" min={0} max={65536} className={inputCls}
+              value={settings.max_tokens_cap}
+              onChange={(e) => setSettings({ ...settings, max_tokens_cap: +e.target.value })}
+              onBlur={() => save({ max_tokens_cap: settings.max_tokens_cap })} />
+            <span className="text-xs text-text-dim mt-1 block">防 GitLab 93s 超时，0=不限</span>
+          </div>
+        </div>
+        <div className="mt-4">
+          <label className="field-label">测试模型</label>
+          <select className={inputCls + " appearance-none"}
+            value={settings.test_model}
+            onChange={(e) => { setSettings({ ...settings, test_model: e.target.value }); void save({ test_model: e.target.value }) }}
+          >
+            <option value="claude-sonnet-4-6">Claude Sonnet 4.6</option>
+            <option value="claude-haiku-4-5-20251001">Claude Haiku 4.5</option>
+            <option value="claude-opus-4-6">Claude Opus 4.6</option>
+          </select>
+        </div>
+      </section>
+
+      {/* API Keys */}
+      <section className="card">
+        <h2 className="card-title">代理 API Key</h2>
+        <div className="space-y-2 mb-4">
+          {apiKeys.map((ak) => (
+            <div key={ak.id} className="flex items-center gap-2 rounded-lg border border-border bg-surface-3 p-3">
+              <span className="text-sm font-medium text-text-primary w-24 shrink-0">{ak.name}</span>
+              <code className="flex-1 text-xs font-mono text-text-muted break-all select-all">{ak.key}</code>
+              <button onClick={() => void handleToggleAutoContinue(ak)}
+                className={`cursor-pointer rounded-md px-2.5 py-1 text-xs font-medium transition-all shrink-0 ${
+                  ak.auto_continue
+                    ? "bg-success/15 text-success border border-success/20"
+                    : "bg-surface-4 text-text-dim border border-border"
                 }`}
-                style={settings.rotation_mode === mode ? { background: "linear-gradient(135deg, #FFB6D9, #E6D5FF)" } : undefined}
-              >{label}</button>
-            ))}
-          </div>
-        </section>
+              >{ak.auto_continue ? "续传" : "直通"}</button>
+              <button onClick={() => void copyKey(ak.key)} className="cursor-pointer rounded-lg p-1.5 text-text-muted hover:bg-brand/10 hover:text-brand" title="复制">
+                <Copy className="h-3.5 w-3.5" />
+              </button>
+              <button onClick={() => void handleDeleteApiKey(ak.id)} className="cursor-pointer rounded-lg p-1.5 text-text-muted hover:bg-danger/10 hover:text-danger" title="删除">
+                <Trash2 className="h-3.5 w-3.5" />
+              </button>
+            </div>
+          ))}
+          {apiKeys.length === 0 && <p className="text-sm text-text-muted py-2">还没有 API Key</p>}
+        </div>
+        <div className="flex gap-2">
+          <input className={inputCls + " flex-1"}
+            value={newKeyName} onChange={(e) => setNewKeyName(e.target.value)}
+            placeholder="新 Key 名称" onKeyDown={(e) => e.key === "Enter" && handleAddApiKey()} />
+          <button onClick={() => void handleAddApiKey()}
+            className="btn-primary shrink-0" disabled={!newKeyName.trim()}>
+            <Plus className="h-4 w-4" /> 创建
+          </button>
+        </div>
+      </section>
 
-        {/* Proxy Strategy */}
-        <section className="bg-white rounded-kawaii-lg shadow-kawaii-md p-6">
-          <h2 className="text-sm font-semibold text-kawaii-text-md mb-3">{"\u{1F6E1}\uFE0F \u4EE3\u7406\u7B56\u7565"}</h2>
-          <div className="grid grid-cols-3 gap-4">
-            <div>
-              <label className="block text-xs text-kawaii-text-lt mb-1">{"\u6700\u5927\u91CD\u8BD5"}</label>
-              <input type="number" min={0} max={10}
-                className="w-full bg-kawaii-cream border-2 border-kawaii-pink-light rounded-kawaii-md px-3 py-2 text-sm focus:outline-none focus:border-kawaii-pink transition-all duration-300"
-                value={settings.max_retries}
-                onChange={(e) => setSettings({ ...settings, max_retries: +e.target.value })}
-                onBlur={() => save({ max_retries: settings.max_retries })}
-              />
-            </div>
-            <div>
-              <label className="block text-xs text-kawaii-text-lt mb-1">{"\u9ED1\u540D\u5355\u9608\u503C"}</label>
-              <input type="number" min={0} max={100}
-                className="w-full bg-kawaii-cream border-2 border-kawaii-pink-light rounded-kawaii-md px-3 py-2 text-sm focus:outline-none focus:border-kawaii-pink transition-all duration-300"
-                value={settings.blacklist_threshold}
-                onChange={(e) => setSettings({ ...settings, blacklist_threshold: +e.target.value })}
-                onBlur={() => save({ blacklist_threshold: settings.blacklist_threshold })}
-              />
-            </div>
-            <div>
-              <label className="block text-xs text-kawaii-text-lt mb-1">{"\u9A8C\u8BC1\u95F4\u9694(\u5206)"}</label>
-              <input type="number" min={1} max={60}
-                className="w-full bg-kawaii-cream border-2 border-kawaii-pink-light rounded-kawaii-md px-3 py-2 text-sm focus:outline-none focus:border-kawaii-pink transition-all duration-300"
-                value={settings.validation_interval}
-                onChange={(e) => setSettings({ ...settings, validation_interval: +e.target.value })}
-                onBlur={() => save({ validation_interval: settings.validation_interval })}
-              />
-            </div>
+      {/* Endpoints */}
+      <section className="card">
+        <h2 className="card-title">端点配置</h2>
+        <div className="space-y-3">
+          <div>
+            <label className="field-label">GitLab URL</label>
+            <input className={inputCls}
+              value={settings.gitlab_url}
+              onChange={(e) => setSettings({ ...settings, gitlab_url: e.target.value })}
+              onBlur={() => save({ gitlab_url: settings.gitlab_url })} />
           </div>
-          <div className="grid grid-cols-2 gap-4 mt-4">
-            <div>
-              <label className="block text-xs text-kawaii-text-lt mb-1">{"\u81EA\u52A8\u7EED\u4F20\u6B21\u6570"}</label>
-              <input type="number" min={0} max={10}
-                className="w-full bg-kawaii-cream border-2 border-kawaii-pink-light rounded-kawaii-md px-3 py-2 text-sm focus:outline-none focus:border-kawaii-pink transition-all duration-300"
-                value={settings.max_continuations}
-                onChange={(e) => setSettings({ ...settings, max_continuations: +e.target.value })}
-                onBlur={() => save({ max_continuations: settings.max_continuations })}
-              />
-              <span className="text-xs text-kawaii-text-lt mt-1 block">{"\u6D41\u5F0F\u622A\u65AD\u65F6\u81EA\u52A8\u7EED\u4F20\uFF0C0=\u7981\u7528"}</span>
-            </div>
-            <div>
-              <label className="block text-xs text-kawaii-text-lt mb-1">Token \u4E0A\u9650</label>
-              <input type="number" min={0} max={65536}
-                className="w-full bg-kawaii-cream border-2 border-kawaii-pink-light rounded-kawaii-md px-3 py-2 text-sm focus:outline-none focus:border-kawaii-pink transition-all duration-300"
-                value={settings.max_tokens_cap}
-                onChange={(e) => setSettings({ ...settings, max_tokens_cap: +e.target.value })}
-                onBlur={() => save({ max_tokens_cap: settings.max_tokens_cap })}
-              />
-              <span className="text-xs text-kawaii-text-lt mt-1 block">{"\u9632\u6B62\u8D85\u8FC7GitLab 93s\u8D85\u65F6\uFF0C0=\u4E0D\u9650\u5236"}</span>
-            </div>
+          <div>
+            <label className="field-label">Anthropic Proxy</label>
+            <input className={inputCls}
+              value={settings.anthropic_proxy}
+              onChange={(e) => setSettings({ ...settings, anthropic_proxy: e.target.value })}
+              onBlur={() => save({ anthropic_proxy: settings.anthropic_proxy })} />
           </div>
-          <div className="grid grid-cols-1 gap-4 mt-4">
-            <div>
-              <label className="block text-xs text-kawaii-text-lt mb-1">{"\u6D4B\u8BD5\u6A21\u578B"}</label>
-              <select
-                className="w-full bg-kawaii-cream border-2 border-kawaii-pink-light rounded-kawaii-md px-3 py-2 text-sm focus:outline-none focus:border-kawaii-pink transition-all duration-300 appearance-none"
-                value={settings.test_model}
-                onChange={(e) => { setSettings({ ...settings, test_model: e.target.value }); void save({ test_model: e.target.value }) }}
-              >
-                <option value="claude-sonnet-4-6">Claude Sonnet 4.6</option>
-                <option value="claude-haiku-4-5-20251001">Claude Haiku 4.5</option>
-                <option value="claude-opus-4-6">Claude Opus 4.6</option>
-                <option value="claude-sonnet-4-5-20250514">Claude Sonnet 4</option>
-              </select>
-            </div>
-          </div>
-        </section>
-
-        {/* API Keys */}
-        <section className="bg-white rounded-kawaii-lg shadow-kawaii-md p-6">
-          <h2 className="text-sm font-semibold text-kawaii-text-md mb-3">{"\u{1F511} \u4EE3\u7406 API Key"}</h2>
-          <div className="space-y-2 mb-4">
-            {apiKeys.map((ak) => (
-              <div key={ak.id} className="flex items-center gap-2 bg-kawaii-cream rounded-kawaii-sm p-3">
-                <span className="text-sm font-medium w-24 shrink-0">{ak.name}</span>
-                <code className="flex-1 text-xs font-mono text-kawaii-text-md break-all select-all">{ak.key}</code>
-                <button onClick={() => void handleToggleAutoContinue(ak)}
-                  className={`px-3 py-1 rounded-full text-xs border-2 transition-all shrink-0 ${ak.auto_continue ? "border-kawaii-green bg-kawaii-green-light" : "border-gray-300 bg-gray-100 text-kawaii-text-lt"}`}
-                >{ak.auto_continue ? "\u7EED\u4F20" : "\u76F4\u901A"}</button>
-                <button onClick={() => void copyKey(ak.key)} className="px-3 py-1 rounded-full text-xs border-2 border-kawaii-purple bg-kawaii-purple-light hover:bg-kawaii-purple transition-all shrink-0">{"\u590D\u5236"}</button>
-                <button onClick={() => void handleDeleteApiKey(ak.id)} className="px-3 py-1 rounded-full text-xs border-2 border-kawaii-pink bg-kawaii-pink-light hover:bg-kawaii-pink transition-all shrink-0">{"\u5220\u9664"}</button>
-              </div>
-            ))}
-            {apiKeys.length === 0 && <p className="text-sm text-kawaii-text-lt">{"\u8FD8\u6CA1\u6709 API Key"}</p>}
-          </div>
-          <div className="flex gap-2">
-            <input className="flex-1 bg-kawaii-cream border-2 border-kawaii-pink-light rounded-kawaii-md px-4 py-2 text-sm focus:outline-none focus:border-kawaii-pink transition-all"
-              value={newKeyName} onChange={(e) => setNewKeyName(e.target.value)}
-              placeholder={"\u65B0 Key \u540D\u79F0"} onKeyDown={(e) => e.key === "Enter" && handleAddApiKey()}
-            />
-            <button onClick={() => void handleAddApiKey()}
-              className="kawaii-gradient-bg px-5 py-2 rounded-full text-sm font-semibold transition-all hover:-translate-y-0.5 hover:shadow-kawaii-sm disabled:opacity-40 shrink-0"
-              disabled={!newKeyName.trim()}>{"\u521B\u5EFA"}</button>
-          </div>
-        </section>
-
-        {/* Endpoints */}
-        <section className="bg-white rounded-kawaii-lg shadow-kawaii-md p-6">
-          <h2 className="text-sm font-semibold text-kawaii-text-md mb-3">{"\u7AEF\u70B9\u914D\u7F6E"}</h2>
-          <div className="space-y-3">
-            <div>
-              <label className="block text-xs text-kawaii-text-lt mb-1">GitLab URL</label>
-              <input className="w-full bg-kawaii-cream border-2 border-kawaii-pink-light rounded-kawaii-md px-4 py-2.5 text-sm focus:outline-none focus:border-kawaii-pink transition-all"
-                value={settings.gitlab_url}
-                onChange={(e) => setSettings({ ...settings, gitlab_url: e.target.value })}
-                onBlur={() => save({ gitlab_url: settings.gitlab_url })} />
-            </div>
-            <div>
-              <label className="block text-xs text-kawaii-text-lt mb-1">Anthropic Proxy</label>
-              <input className="w-full bg-kawaii-cream border-2 border-kawaii-pink-light rounded-kawaii-md px-4 py-2.5 text-sm focus:outline-none focus:border-kawaii-pink transition-all"
-                value={settings.anthropic_proxy}
-                onChange={(e) => setSettings({ ...settings, anthropic_proxy: e.target.value })}
-                onBlur={() => save({ anthropic_proxy: settings.anthropic_proxy })} />
-            </div>
-          </div>
-        </section>
-      </div>
+        </div>
+      </section>
     </div>
   )
 }

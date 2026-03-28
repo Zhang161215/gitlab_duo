@@ -8,9 +8,11 @@ export default function Layout({ page, onNavigate, onLogout, children }: {
   children: ReactNode
 }) {
   return (
-    <div className="flex h-screen bg-gradient-to-b from-white to-kawaii-cream text-kawaii-text">
+    <div className="flex min-h-screen bg-surface-0 text-text-primary">
       <Sidebar current={page} onNavigate={onNavigate} onLogout={onLogout} />
-      <main className="flex-1 overflow-auto p-8">{children}</main>
+      <main className="ml-56 flex-1 overflow-auto">
+        <div className="mx-auto max-w-6xl p-6">{children}</div>
+      </main>
     </div>
   )
 }

@@ -1,4 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from "react"
+import { CheckCircle2, AlertTriangle, X } from "lucide-react"
 
 type ToastType = "success" | "error"
 type Toast = { id: number; message: string; type: ToastType }
@@ -19,7 +20,7 @@ export function ToastProvider({ children }: { children: ReactNode }) {
     const timer = window.setTimeout(() => {
       setToasts((t) => t.filter((x) => x.id !== id))
       timersRef.current = timersRef.current.filter((v) => v !== timer)
-    }, 3000)
+    }, 3500)
     timersRef.current.push(timer)
   }, [])
 
@@ -30,20 +31,26 @@ export function ToastProvider({ children }: { children: ReactNode }) {
     }
   }, [])
 
+  const dismiss = (id: number) => setToasts((t) => t.filter((x) => x.id !== id))
+
   return (
     <Ctx value={{ toast }}>
       {children}
-      <div className="fixed bottom-4 right-4 flex flex-col gap-2 z-50">
+      <div className="fixed bottom-4 right-4 z-50 flex flex-col gap-2">
         {toasts.map((t) => (
           <div
             key={t.id}
-            className={`px-5 py-3 rounded-full text-sm font-medium shadow-kawaii-md ${
+            className={`animate-fade-in flex items-center gap-2 rounded-lg border px-4 py-3 text-sm font-medium shadow-md ${
               t.type === "success"
-                ? "bg-kawaii-green-light text-kawaii-text border-2 border-kawaii-green"
-                : "bg-kawaii-pink-light text-kawaii-text border-2 border-kawaii-pink"
+                ? "border-success/20 bg-success/10 text-success"
+                : "border-danger/20 bg-danger/10 text-danger"
             }`}
           >
-            {t.type === "success" ? "\u2705 " : "\u26A0\uFE0F "}{t.message}
+            {t.type === "success" ? <CheckCircle2 className="h-4 w-4" /> : <AlertTriangle className="h-4 w-4" />}
+            <span className="flex-1">{t.message}</span>
+            <button onClick={() => dismiss(t.id)} className="ml-2 cursor-pointer opacity-60 hover:opacity-100">
+              <X className="h-3.5 w-3.5" />
+            </button>
           </div>
         ))}
       </div>

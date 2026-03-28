@@ -2,6 +2,7 @@ import { useEffect, useState } from "react"
 import StatsCard from "../components/StatsCard"
 import { useToast } from "../components/Toast"
 import { fetchStats, fetchKeys, getErrorMessage, type StatsInfo, type KeyInfo } from "../api"
+import { Send, Key, CheckCircle2, ArrowDownToLine, ArrowUpFromLine } from "lucide-react"
 
 export default function Dashboard() {
   const [stats, setStats] = useState<StatsInfo>({
@@ -33,42 +34,43 @@ export default function Dashboard() {
   const perKeyEntries = Object.entries(stats.per_key)
 
   return (
-    <div>
-      <h1 className="text-2xl font-bold mb-6 kawaii-gradient-text">{"\u{1F4CA} \u4EEA\u8868\u76D8"}</h1>
-      <div className="grid grid-cols-1 sm:grid-cols-3 lg:grid-cols-5 gap-5 mb-8">
-        <StatsCard icon={"\u{1F4E8}"} title={"\u603B\u8BF7\u6C42\u6570"} value={stats.total_requests} />
-        <StatsCard icon={"\u{1F511}"} title={"\u6D3B\u8DC3\u5BC6\u94A5"} value={stats.active_keys} />
-        <StatsCard icon={"\u2705"} title={"\u6210\u529F\u7387"} value={`${stats.success_rate}%`} />
-        <StatsCard icon={"\u{1F4E5}"} title={"\u8F93\u5165 Tokens"} value={fmt(stats.total_input_tokens)} />
-        <StatsCard icon={"\u{1F4E4}"} title={"\u8F93\u51FA Tokens"} value={fmt(stats.total_output_tokens)} />
+    <div className="animate-fade-in space-y-6">
+      <h1 className="text-xl font-bold text-text-primary">仪表盘</h1>
+
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-3 lg:grid-cols-5">
+        <StatsCard icon={<Send className="h-4 w-4" />} title="总请求数" value={stats.total_requests} />
+        <StatsCard icon={<Key className="h-4 w-4" />} title="活跃密钥" value={stats.active_keys} />
+        <StatsCard icon={<CheckCircle2 className="h-4 w-4" />} title="成功率" value={`${stats.success_rate}%`} />
+        <StatsCard icon={<ArrowDownToLine className="h-4 w-4" />} title="输入 Tokens" value={fmt(stats.total_input_tokens)} />
+        <StatsCard icon={<ArrowUpFromLine className="h-4 w-4" />} title="输出 Tokens" value={fmt(stats.total_output_tokens)} />
       </div>
 
       {perKeyEntries.length > 0 && (
-        <div className="bg-white rounded-kawaii-lg p-6 shadow-kawaii-md">
-          <h2 className="text-lg font-bold mb-4 kawaii-gradient-text">{"\u{1F511} Per-Key \u7EDF\u8BA1"}</h2>
+        <div className="rounded-xl border border-border bg-surface-1 p-5">
+          <h2 className="mb-4 text-sm font-semibold text-text-primary">Per-Key 统计</h2>
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
-                <tr className="text-left text-kawaii-text-md border-b">
-                  <th className="pb-2 pr-4">{"\u5BC6\u94A5"}</th>
-                  <th className="pb-2 pr-4">{"\u8BF7\u6C42\u6570"}</th>
-                  <th className="pb-2 pr-4">{"\u6210\u529F"}</th>
-                  <th className="pb-2 pr-4">{"\u5931\u8D25"}</th>
-                  <th className="pb-2 pr-4">{"\u8F93\u5165 Tokens"}</th>
-                  <th className="pb-2 pr-4">{"\u8F93\u51FA Tokens"}</th>
-                  <th className="pb-2">{"\u6700\u540E\u4F7F\u7528"}</th>
+                <tr className="border-b border-border text-left text-xs uppercase tracking-wider text-text-muted">
+                  <th className="pb-2 pr-4">密钥</th>
+                  <th className="pb-2 pr-4">请求</th>
+                  <th className="pb-2 pr-4">成功</th>
+                  <th className="pb-2 pr-4">失败</th>
+                  <th className="pb-2 pr-4">输入</th>
+                  <th className="pb-2 pr-4">输出</th>
+                  <th className="pb-2">最后使用</th>
                 </tr>
               </thead>
               <tbody>
                 {perKeyEntries.map(([kid, s]) => (
-                  <tr key={kid} className="border-b border-kawaii-cream/50">
-                    <td className="py-2 pr-4 font-medium">{keyMap[kid] || kid.slice(0, 8)}</td>
-                    <td className="py-2 pr-4">{s.total}</td>
-                    <td className="py-2 pr-4 text-green-600">{s.success}</td>
-                    <td className="py-2 pr-4 text-red-500">{s.failures}</td>
-                    <td className="py-2 pr-4">{fmt(s.input_tokens)}</td>
-                    <td className="py-2 pr-4">{fmt(s.output_tokens)}</td>
-                    <td className="py-2 text-kawaii-text-lt">{s.last_used ? timeAgo(s.last_used) : "-"}</td>
+                  <tr key={kid} className="border-b border-border/50 hover:bg-surface-2/50">
+                    <td className="py-2.5 pr-4 font-medium text-text-primary">{keyMap[kid] || kid.slice(0, 8)}</td>
+                    <td className="py-2.5 pr-4 tabular-nums text-text-secondary">{s.total}</td>
+                    <td className="py-2.5 pr-4 tabular-nums text-success">{s.success}</td>
+                    <td className="py-2.5 pr-4 tabular-nums text-danger">{s.failures}</td>
+                    <td className="py-2.5 pr-4 tabular-nums text-text-secondary">{fmt(s.input_tokens)}</td>
+                    <td className="py-2.5 pr-4 tabular-nums text-text-secondary">{fmt(s.output_tokens)}</td>
+                    <td className="py-2.5 text-text-dim">{s.last_used ? timeAgo(s.last_used) : "-"}</td>
                   </tr>
                 ))}
               </tbody>
@@ -88,8 +90,8 @@ function fmt(n: number): string {
 
 function timeAgo(ts: number): string {
   const diff = Date.now() / 1000 - ts
-  if (diff < 60) return "\u521A\u521A"
-  if (diff < 3600) return `${Math.floor(diff / 60)} \u5206\u949F\u524D`
-  if (diff < 86400) return `${Math.floor(diff / 3600)} \u5C0F\u65F6\u524D`
-  return `${Math.floor(diff / 86400)} \u5929\u524D`
+  if (diff < 60) return "刚刚"
+  if (diff < 3600) return `${Math.floor(diff / 60)} 分钟前`
+  if (diff < 86400) return `${Math.floor(diff / 3600)} 小时前`
+  return `${Math.floor(diff / 86400)} 天前`
 }

@@ -1,47 +1,110 @@
 @import "tailwindcss";
 
 @theme {
-  --color-kawaii-pink: #FFB6D9;
-  --color-kawaii-pink-light: #FFDBE9;
-  --color-kawaii-purple: #E6D5FF;
-  --color-kawaii-purple-light: #F5EDFF;
-  --color-kawaii-green: #D4F1D4;
-  --color-kawaii-green-light: #E8F8E8;
-  --color-kawaii-yellow: #FFF9E6;
-  --color-kawaii-cream: #FFF9F5;
-  --color-kawaii-text: #333333;
-  --color-kawaii-text-md: #666666;
-  --color-kawaii-text-lt: #999999;
+  /* Surface system (dark mode first) */
+  --color-surface-0: #09090b;
+  --color-surface-1: #111113;
+  --color-surface-2: #18181b;
+  --color-surface-3: #1f1f23;
+  --color-surface-4: #27272a;
+  --color-surface-5: #303035;
 
-  --radius-kawaii-sm: 16px;
-  --radius-kawaii-md: 24px;
-  --radius-kawaii-lg: 32px;
+  /* Brand colors */
+  --color-brand: #2563eb;
+  --color-brand-light: #3b82f6;
+  --color-brand-dim: #1d4ed8;
+  --color-accent: #f97316;
+  --color-accent-light: #fb923c;
 
-  --shadow-kawaii-sm: 0 4px 12px rgba(255, 182, 217, 0.15);
-  --shadow-kawaii-md: 0 8px 20px rgba(255, 182, 217, 0.25);
-  --shadow-kawaii-lg: 0 12px 32px rgba(255, 182, 217, 0.35);
+  /* Semantic */
+  --color-success: #10b981;
+  --color-success-dim: #059669;
+  --color-warning: #f59e0b;
+  --color-warning-dim: #d97706;
+  --color-danger: #ef4444;
+  --color-danger-dim: #dc2626;
+  --color-info: #06b6d4;
 
-  --animate-kawaii-bounce: kawaiiBounce 0.6s cubic-bezier(0.34, 1.56, 0.64, 1);
-  --animate-kawaii-float: kawaiiFloat 3s ease-in-out infinite;
+  /* Text */
+  --color-text-primary: #f4f4f5;
+  --color-text-secondary: #a1a1aa;
+  --color-text-muted: #71717a;
+  --color-text-dim: #52525b;
+
+  /* Border */
+  --color-border: #27272a;
+  --color-border-light: #3f3f46;
+
+  /* Shadows */
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3);
+  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.4);
+  --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.5);
+  --shadow-glow-brand: 0 0 20px rgba(37, 99, 235, 0.15);
+  --shadow-glow-success: 0 0 12px rgba(16, 185, 129, 0.2);
+  --shadow-glow-danger: 0 0 12px rgba(239, 68, 68, 0.2);
 }
 
-@keyframes kawaiiBounce {
-  0%, 100% { transform: translateY(-4px); }
-  50% { transform: translateY(-12px); }
+/* Base styles */
+html { color-scheme: dark; }
+
+body {
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
 
-@keyframes kawaiiFloat {
-  0%, 100% { transform: translateY(0); }
-  50% { transform: translateY(-8px); }
+/* Scrollbar */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: #333; border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: #555; }
+
+/* Utility classes */
+.glass {
+  background: rgba(17, 17, 19, 0.8);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
 }
 
-.kawaii-gradient-text {
-  background: linear-gradient(135deg, #FFB6D9 0%, #D4F1D4 100%);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  background-clip: text;
+.glow-brand { box-shadow: var(--shadow-glow-brand); }
+.glow-success { box-shadow: var(--shadow-glow-success); }
+.glow-danger { box-shadow: var(--shadow-glow-danger); }
+
+@keyframes fade-in {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.animate-fade-in { animation: fade-in 0.25s ease-out; }
+
+@keyframes pulse-dot {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+.animate-pulse-dot { animation: pulse-dot 2s ease-in-out infinite; }
+
+@keyframes shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+.skeleton {
+  background: linear-gradient(90deg, #1f1f23 25%, #27272a 50%, #1f1f23 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.5s infinite;
 }
 
-.kawaii-gradient-bg {
-  background: linear-gradient(135deg, #FFB6D9, #E6D5FF);
+/* Shared component classes */
+.btn-primary {
+  @apply flex cursor-pointer items-center gap-2 rounded-lg bg-brand px-4 py-2 text-sm font-medium text-white transition-all hover:bg-brand-light disabled:cursor-not-allowed disabled:opacity-40;
+}
+.btn-secondary {
+  @apply flex cursor-pointer items-center gap-2 rounded-lg border border-border bg-surface-2 px-3 py-2 text-sm text-text-secondary transition-all hover:bg-surface-3 hover:text-text-primary disabled:cursor-not-allowed disabled:opacity-40;
+}
+.card {
+  @apply rounded-xl border border-border bg-surface-1 p-5;
+}
+.card-title {
+  @apply mb-4 text-sm font-semibold text-text-primary;
+}
+.field-label {
+  @apply mb-1.5 block text-xs text-text-muted;
 }

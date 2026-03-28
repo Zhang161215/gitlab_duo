@@ -1,6 +1,7 @@
 import { useState } from "react"
 import { useToast } from "../components/Toast"
 import { login, getErrorMessage } from "../api"
+import { Zap, Loader2 } from "lucide-react"
 
 export default function Login({ onLogin }: { onLogin: () => void }) {
   const [password, setPassword] = useState("")
@@ -22,28 +23,30 @@ export default function Login({ onLogin }: { onLogin: () => void }) {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gradient-to-b from-white to-kawaii-cream">
-      <form onSubmit={handleSubmit} className="bg-white rounded-kawaii-lg shadow-kawaii-lg p-8 w-full max-w-sm">
-        <div className="text-center mb-6">
-          <div className="text-5xl mb-3 animate-kawaii-float">{"\u2728"}</div>
-          <h1 className="text-2xl font-bold kawaii-gradient-text">Duo Manager</h1>
-          <p className="text-sm text-kawaii-text-md mt-1">{"\u8BF7\u8F93\u5165\u7BA1\u7406\u5BC6\u7801\u767B\u5F55"}</p>
+    <div className="flex min-h-screen items-center justify-center bg-surface-0">
+      <form onSubmit={handleSubmit} className="w-full max-w-sm animate-fade-in rounded-2xl border border-border bg-surface-1 p-8 shadow-lg">
+        <div className="mb-8 text-center">
+          <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-xl bg-gradient-to-br from-brand to-brand-light shadow-md">
+            <Zap className="h-6 w-6 text-white" />
+          </div>
+          <h1 className="text-xl font-bold text-text-primary">Duo Manager</h1>
+          <p className="mt-1 text-sm text-text-muted">请输入管理密码登录</p>
         </div>
         <input
           type="password"
-          className="w-full bg-kawaii-cream border-2 border-kawaii-pink-light rounded-kawaii-md px-4 py-3 text-sm focus:outline-none focus:border-kawaii-pink focus:shadow-[0_0_0_4px_rgba(255,182,217,0.2)] transition-all duration-300 mb-4"
+          className="mb-4 w-full rounded-lg border border-border bg-surface-2 px-4 py-3 text-sm text-text-primary placeholder-text-dim outline-none transition-colors focus:border-brand/50 focus:ring-2 focus:ring-brand/20"
           value={password}
           onChange={(e) => setPassword(e.target.value)}
-          placeholder={"\u7BA1\u7406\u5BC6\u7801"}
+          placeholder="管理密码"
           autoFocus
           disabled={loading}
         />
         <button
           type="submit"
-          className="w-full kawaii-gradient-bg py-3 rounded-full text-sm font-semibold transition-all duration-300 hover:-translate-y-1 hover:shadow-kawaii-md disabled:opacity-40"
+          className="flex w-full cursor-pointer items-center justify-center gap-2 rounded-lg bg-brand py-3 text-sm font-semibold text-white transition-all hover:bg-brand-light disabled:cursor-not-allowed disabled:opacity-40"
           disabled={loading || !password.trim()}
         >
-          {loading ? "\u767B\u5F55\u4E2D..." : "\u767B\u5F55"}
+          {loading ? <><Loader2 className="h-4 w-4 animate-spin" /> 登录中...</> : "登录"}
         </button>
       </form>
     </div>

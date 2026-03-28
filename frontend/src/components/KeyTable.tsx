@@ -1,18 +1,19 @@
 import { useState } from "react"
 import type { KeyInfo } from "../api"
+import { FlaskConical, RotateCcw, Power, Trash2, Loader2 } from "lucide-react"
 
 function formatTTL(seconds: number): string {
-  if (seconds <= 0) return "\u5DF2\u8FC7\u671F"
+  if (seconds <= 0) return "已过期"
   const h = Math.floor(seconds / 3600)
   const m = Math.floor((seconds % 3600) / 60)
-  return h > 0 ? `${h}\u5C0F\u65F6 ${m}\u5206` : `${m}\u5206`
+  return h > 0 ? `${h}h ${m}m` : `${m}m`
 }
 
-function statusLabel(k: KeyInfo): { text: string; color: string } {
-  if (!k.enabled) return { text: "\u5DF2\u7981\u7528", color: "bg-gray-300" }
-  if (k.status === "invalid") return { text: "\u5DF2\u5931\u6548", color: "bg-red-400" }
-  if (k.has_token) return { text: "\u6D3B\u8DC3", color: "bg-kawaii-green" }
-  return { text: "\u65E0 Token", color: "bg-yellow-400" }
+function statusBadge(k: KeyInfo): { text: string; cls: string } {
+  if (!k.enabled) return { text: "已禁用", cls: "bg-surface-4 text-text-dim" }
+  if (k.status === "invalid") return { text: "已失效", cls: "bg-danger/15 text-danger" }
+  if (k.has_token) return { text: "活跃", cls: "bg-success/15 text-success" }
+  return { text: "无 Token", cls: "bg-warning/15 text-warning" }
 }
 
 export default function KeyTable({ keys, onToggle, onDelete, onTest, onRestore }: {
@@ -29,70 +30,75 @@ export default function KeyTable({ keys, onToggle, onDelete, onTest, onRestore }
     try { await fn() } finally { setLoading((s) => { const n = { ...s }; delete n[id]; return n }) }
   }
 
+  if (keys.length === 0) {
+    return (
+      <div className="rounded-xl border border-border bg-surface-1 py-16 text-center">
+        <div className="mb-2 text-2xl text-text-dim">No Keys</div>
+        <div className="text-sm text-text-muted">点击上方按钮添加密钥</div>
+      </div>
+    )
+  }
+
   return (
-    <div className="bg-white rounded-kawaii-lg shadow-kawaii-md overflow-hidden">
+    <div className="overflow-hidden rounded-xl border border-border bg-surface-1">
       <table className="w-full">
         <thead>
-          <tr className="bg-kawaii-pink-light/50 text-kawaii-text-md text-sm">
-            <th className="px-4 py-3 text-left font-medium">{"\u540D\u79F0"}</th>
+          <tr className="border-b border-border bg-surface-2/50 text-xs uppercase tracking-wider text-text-muted">
+            <th className="px-4 py-3 text-left font-medium">名称</th>
             <th className="px-4 py-3 text-left font-medium">PAT</th>
-            <th className="px-4 py-3 text-left font-medium">{"\u72B6\u6001"}</th>
-            <th className="px-4 py-3 text-left font-medium">{"\u5931\u8D25"}</th>
-            <th className="px-4 py-3 text-left font-medium">{"\u6743\u91CD"}</th>
-            <th className="px-4 py-3 text-left font-medium">Token</th>
-            <th className="px-4 py-3 text-right font-medium">{"\u64CD\u4F5C"}</th>
+            <th className="px-4 py-3 text-left font-medium">状态</th>
+            <th className="px-4 py-3 text-left font-medium">失败</th>
+            <th className="px-4 py-3 text-left font-medium">权重</th>
+            <th className="px-4 py-3 text-left font-medium">Token TTL</th>
+            <th className="px-4 py-3 text-right font-medium">操作</th>
           </tr>
         </thead>
         <tbody>
           {keys.map((k) => {
-            const st = statusLabel(k)
+            const st = statusBadge(k)
             const busy = loading[k.id]
             return (
-              <tr key={k.id} className="border-t border-kawaii-pink-light/30 hover:bg-kawaii-purple-light/30 transition-colors">
-                <td className="px-4 py-3 text-sm font-medium">{k.name}</td>
-                <td className="px-4 py-3 text-sm font-mono text-kawaii-text-md">{k.pat}</td>
+              <tr key={k.id} className="border-b border-border/50 transition-colors hover:bg-surface-2/30">
+                <td className="px-4 py-3 text-sm font-medium text-text-primary">{k.name}</td>
+                <td className="px-4 py-3 font-mono text-xs text-text-dim">{k.pat}</td>
                 <td className="px-4 py-3">
-                  <span className="flex items-center gap-2 text-sm">
-                    <span className={`w-2.5 h-2.5 rounded-full ${st.color}`} />
+                  <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium ${st.cls}`}>
+                    <span className={`h-1.5 w-1.5 rounded-full ${
+                      k.status === "invalid" ? "bg-danger" : k.has_token && k.enabled ? "bg-success animate-pulse-dot" : "bg-text-dim"
+                    }`} />
                     {st.text}
                   </span>
                 </td>
-                <td className="px-4 py-3 text-sm text-kawaii-text-md">{k.failure_count}</td>
-                <td className="px-4 py-3 text-sm text-kawaii-text-md">{k.weight}</td>
-                <td className="px-4 py-3 text-sm text-kawaii-text-md">{k.has_token ? formatTTL(k.token_ttl) : "-"}</td>
-                <td className="px-4 py-3 text-right space-x-1">
-                  <button
-                    className="text-xs px-2.5 py-1 rounded-full border-2 border-kawaii-green bg-kawaii-green-light hover:bg-kawaii-green transition-all duration-300 disabled:opacity-40"
-                    onClick={() => withLoading(k.id, "test", () => onTest(k.id))}
-                    disabled={!!busy}
-                  >{busy === "test" ? "..." : "\u6D4B\u8BD5"}</button>
-                  {k.status === "invalid" && (
+                <td className="px-4 py-3 text-sm tabular-nums text-text-muted">{k.failure_count}</td>
+                <td className="px-4 py-3 text-sm tabular-nums text-text-muted">{k.weight}</td>
+                <td className="px-4 py-3 text-sm tabular-nums text-text-muted">{k.has_token ? formatTTL(k.token_ttl) : "-"}</td>
+                <td className="px-4 py-3 text-right">
+                  <div className="flex items-center justify-end gap-1">
                     <button
-                      className="text-xs px-2.5 py-1 rounded-full border-2 border-kawaii-yellow bg-kawaii-yellow hover:bg-yellow-300 transition-all duration-300 disabled:opacity-40"
-                      onClick={() => withLoading(k.id, "restore", () => onRestore(k.id))}
-                      disabled={!!busy}
-                    >{busy === "restore" ? "..." : "\u6062\u590D"}</button>
-                  )}
-                  <button
-                    className="text-xs px-2.5 py-1 rounded-full border-2 border-kawaii-purple bg-kawaii-purple-light hover:bg-kawaii-purple transition-all duration-300"
-                    onClick={() => onToggle(k.id, !k.enabled)}
-                  >{k.enabled ? "\u7981\u7528" : "\u542F\u7528"}</button>
-                  <button
-                    className="text-xs px-2.5 py-1 rounded-full border-2 border-kawaii-pink bg-kawaii-pink-light hover:bg-kawaii-pink transition-all duration-300"
-                    onClick={() => onDelete(k.id)}
-                  >{"\u5220\u9664"}</button>
+                      className="cursor-pointer rounded-lg p-1.5 text-text-muted transition-colors hover:bg-success/10 hover:text-success disabled:opacity-30"
+                      onClick={() => withLoading(k.id, "test", () => onTest(k.id))}
+                      disabled={!!busy} title="测试"
+                    >{busy === "test" ? <Loader2 className="h-4 w-4 animate-spin" /> : <FlaskConical className="h-4 w-4" />}</button>
+                    {k.status === "invalid" && (
+                      <button
+                        className="cursor-pointer rounded-lg p-1.5 text-text-muted transition-colors hover:bg-warning/10 hover:text-warning disabled:opacity-30"
+                        onClick={() => withLoading(k.id, "restore", () => onRestore(k.id))}
+                        disabled={!!busy} title="恢复"
+                      >{busy === "restore" ? <Loader2 className="h-4 w-4 animate-spin" /> : <RotateCcw className="h-4 w-4" />}</button>
+                    )}
+                    <button
+                      className="cursor-pointer rounded-lg p-1.5 text-text-muted transition-colors hover:bg-brand/10 hover:text-brand"
+                      onClick={() => onToggle(k.id, !k.enabled)} title={k.enabled ? "禁用" : "启用"}
+                    ><Power className="h-4 w-4" /></button>
+                    <button
+                      className="cursor-pointer rounded-lg p-1.5 text-text-muted transition-colors hover:bg-danger/10 hover:text-danger"
+                      onClick={() => onDelete(k.id)} title="删除"
+                    ><Trash2 className="h-4 w-4" /></button>
+                  </div>
                 </td>
               </tr>
             )
           })}
-          {keys.length === 0 && (
-            <tr>
-              <td colSpan={7} className="px-4 py-14 text-center text-kawaii-text-lt">
-                <div className="text-4xl mb-3 animate-kawaii-float">{"\u{1F511}"}</div>
-                {"\u8FD8\u6CA1\u6709\u5BC6\u94A5\uFF0C\u70B9\u51FB\u4E0A\u65B9\u6309\u94AE\u6DFB\u52A0\u5427\uFF01"}
-              </td>
-            </tr>
-          )}
         </tbody>
       </table>
     </div>

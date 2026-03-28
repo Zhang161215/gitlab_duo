@@ -1,4 +1,5 @@
 import { useState } from "react"
+import { X, Loader2 } from "lucide-react"
 
 export default function AddKeyDialog({ open, onClose, onAdd }: {
   open: boolean
@@ -16,51 +17,49 @@ export default function AddKeyDialog({ open, onClose, onAdd }: {
     setSubmitting(true)
     try {
       await onAdd(name.trim(), pat.trim())
-      setName("")
-      setPat("")
-      onClose()
+      setName(""); setPat(""); onClose()
     } catch { /* parent handles */ } finally {
       setSubmitting(false)
     }
   }
 
   return (
-    <div className="fixed inset-0 bg-black/25 backdrop-blur-sm flex items-center justify-center z-50" onClick={submitting ? undefined : onClose}>
-      <div className="bg-white rounded-kawaii-lg p-7 w-full max-w-md shadow-kawaii-lg" onClick={(e) => e.stopPropagation()}>
-        <h2 className="text-xl font-bold mb-5 kawaii-gradient-text">{"\u2728 \u6DFB\u52A0\u5BC6\u94A5"}</h2>
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm" onClick={submitting ? undefined : onClose}>
+      <div className="animate-fade-in w-full max-w-md rounded-2xl border border-border bg-surface-2 p-6 shadow-lg" onClick={(e) => e.stopPropagation()}>
+        <div className="mb-5 flex items-center justify-between">
+          <h2 className="text-base font-semibold text-text-primary">添加密钥</h2>
+          <button onClick={onClose} disabled={submitting} className="cursor-pointer rounded-lg p-1 text-text-muted hover:bg-surface-4 hover:text-text-primary">
+            <X className="h-4 w-4" />
+          </button>
+        </div>
         <div className="space-y-4">
           <div>
-            <label className="block text-sm text-kawaii-text-md mb-1.5 font-medium">{"\u540D\u79F0"}</label>
+            <label className="mb-1.5 block text-xs text-text-muted">名称</label>
             <input
-              className="w-full bg-kawaii-cream border-2 border-kawaii-pink-light rounded-kawaii-md px-4 py-2.5 text-sm focus:outline-none focus:border-kawaii-pink focus:shadow-[0_0_0_4px_rgba(255,182,217,0.2)] focus:-translate-y-0.5 transition-all duration-300"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              placeholder={"\u4F8B\u5982\uFF1A\u4E2A\u4EBA PAT"}
-              autoFocus
-              disabled={submitting}
+              className="w-full rounded-lg border border-border bg-surface-3 px-3 py-2.5 text-sm text-text-primary outline-none transition-colors placeholder:text-text-dim focus:border-brand/50 focus:ring-2 focus:ring-brand/20"
+              value={name} onChange={(e) => setName(e.target.value)}
+              placeholder="例如：个人 PAT" autoFocus disabled={submitting}
             />
           </div>
           <div>
-            <label className="block text-sm text-kawaii-text-md mb-1.5 font-medium">GitLab PAT</label>
+            <label className="mb-1.5 block text-xs text-text-muted">GitLab PAT</label>
             <input
-              className="w-full bg-kawaii-cream border-2 border-kawaii-pink-light rounded-kawaii-md px-4 py-2.5 text-sm font-mono focus:outline-none focus:border-kawaii-pink focus:shadow-[0_0_0_4px_rgba(255,182,217,0.2)] focus:-translate-y-0.5 transition-all duration-300"
-              value={pat}
-              onChange={(e) => setPat(e.target.value)}
-              placeholder="glpat-xxxxxxxxxxxx"
-              disabled={submitting}
+              className="w-full rounded-lg border border-border bg-surface-3 px-3 py-2.5 font-mono text-sm text-text-primary outline-none transition-colors placeholder:text-text-dim focus:border-brand/50 focus:ring-2 focus:ring-brand/20"
+              value={pat} onChange={(e) => setPat(e.target.value)}
+              placeholder="glpat-xxxxxxxxxxxx" disabled={submitting}
             />
           </div>
         </div>
-        <div className="flex justify-end gap-3 mt-6">
-          <button className="px-5 py-2.5 rounded-full text-sm border-2 border-kawaii-pink text-kawaii-text-md hover:bg-kawaii-pink-light transition-all duration-300" onClick={onClose} disabled={submitting}>
-            {"\u53D6\u6D88"}
+        <div className="mt-6 flex justify-end gap-3">
+          <button className="cursor-pointer rounded-lg px-4 py-2 text-sm text-text-muted transition-colors hover:text-text-primary" onClick={onClose} disabled={submitting}>
+            取消
           </button>
           <button
-            className="kawaii-gradient-bg px-5 py-2.5 rounded-full text-sm font-semibold disabled:opacity-40 transition-all duration-300 hover:-translate-y-1 hover:shadow-kawaii-md"
+            className="flex cursor-pointer items-center gap-2 rounded-lg bg-brand px-4 py-2 text-sm font-medium text-white transition-all hover:bg-brand-light disabled:cursor-not-allowed disabled:opacity-40"
             onClick={() => void handleSubmit()}
             disabled={submitting || !name.trim() || !pat.trim()}
           >
-            {submitting ? "\u6DFB\u52A0\u4E2D..." : "\u2728 \u6DFB\u52A0"}
+            {submitting ? <><Loader2 className="h-4 w-4 animate-spin" /> 添加中...</> : "添加"}
           </button>
         </div>
       </div>
