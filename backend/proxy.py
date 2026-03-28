@@ -37,6 +37,19 @@ NON_RETRYABLE_STATUSES = {400, 401, 402, 403, 404}
 RETRY_DELAY_S = 0.75
 MAX_429_WAIT_S = 30  # max seconds to wait on 429 before giving up
 
+# Fields that Claude Code / Anthropic API supports but GitLab Duo proxy rejects
+UNSUPPORTED_FIELDS = {
+    "context_management",
+    "service_tier",
+    "prompt_caching",
+}
+
+
+def _strip_unsupported_fields(payload: dict) -> None:
+    """Remove request fields that GitLab Duo proxy doesn't accept."""
+    for field in UNSUPPORTED_FIELDS:
+        payload.pop(field, None)
+
 
 def _get_retry_after(resp_headers: dict | None) -> float | None:
     """Extract retry delay from response headers. Returns seconds or None."""
@@ -81,6 +94,9 @@ async def proxy_messages(
         payload = {}
 
     max_retries = key_mgr.settings.max_retries
+
+    # Strip fields that GitLab Duo proxy doesn't support
+    _strip_unsupported_fields(payload)
 
     # Cap max_tokens to prevent GitLab ~93s upstream timeout
     cap = key_mgr.settings.max_tokens_cap
