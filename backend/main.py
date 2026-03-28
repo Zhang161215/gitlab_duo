@@ -12,7 +12,11 @@ from pydantic import BaseModel
 from config import ConfigManager
 from keys import KeyManager
 from logs import LogManager
-from proxy import proxy_messages as do_proxy, MODELS
+from proxy import (
+    proxy_messages as do_proxy,
+    proxy_openai_responses as do_openai_proxy,
+    MODELS,
+)
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(name)s] %(message)s")
 
@@ -37,7 +41,11 @@ async def lifespan(app: FastAPI):
     await key_mgr.refresh_all_tokens()
     await key_mgr.start_refresh_loop()
     await key_mgr.start_validation_loop()
-    logging.info("Admin password: %s (from %s)", config_mgr.config.settings.admin_password, config_mgr.admin_password_source)
+    logging.info(
+        "Admin password: %s (from %s)",
+        config_mgr.config.settings.admin_password,
+        config_mgr.admin_password_source,
+    )
     for ak in config_mgr.config.settings.api_keys:
         logging.info("API Key [%s]: %s", ak.name, _mask(ak.key))
     yield
@@ -45,11 +53,17 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="GitLab Duo Manager", version="0.1.0", lifespan=lifespan)
-app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
+app.add_middleware(
+    CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"]
+)
 
 
 def _err(msg: str, status: int = 400) -> Response:
-    return Response(content=json.dumps({"error": {"message": msg}}), status_code=status, media_type="application/json")
+    return Response(
+        content=json.dumps({"error": {"message": msg}}),
+        status_code=status,
+        media_type="application/json",
+    )
 
 
 def _get_bearer(request: Request) -> str:
@@ -80,6 +94,7 @@ def _get_proxy_key(request: Request):
 
 # --- Login ---
 
+
 class LoginReq(BaseModel):
     password: str
 
@@ -93,23 +108,38 @@ async def login(req: LoginReq):
 
 # --- Proxy ---
 
+
 @app.post("/v1/messages")
 async def messages_endpoint(request: Request):
     proxy_key = _get_proxy_key(request)
     if not proxy_key:
         return _err("Invalid API key", 401)
-    return await do_proxy(request, key_mgr, log_mgr, auto_continue=proxy_key.auto_continue)
+    return await do_proxy(
+        request, key_mgr, log_mgr, auto_continue=proxy_key.auto_continue
+    )
+
+
+@app.post("/v1/responses")
+async def responses_endpoint(request: Request):
+    proxy_key = _get_proxy_key(request)
+    if not proxy_key:
+        return _err("Invalid API key", 401)
+    return await do_openai_proxy(request, key_mgr, log_mgr)
 
 
 @app.get("/v1/models")
 async def models_endpoint():
     return {
         "object": "list",
-        "data": [{"id": m["id"], "object": "model", "created": 0, "owned_by": "gitlab-duo"} for m in MODELS],
+        "data": [
+            {"id": m["id"], "object": "model", "created": 0, "owned_by": "gitlab-duo"}
+            for m in MODELS
+        ],
     }
 
 
 # --- GitLab Key CRUD ---
+
 
 class AddKeyReq(BaseModel):
     name: str
@@ -130,7 +160,9 @@ class ReorderReq(BaseModel):
 async def list_keys(request: Request):
     if err := _verify_admin(request):
         return err
-    return [_serialize_key(k) for k in sorted(config_mgr.config.keys, key=lambda x: x.order)]
+    return [
+        _serialize_key(k) for k in sorted(config_mgr.config.keys, key=lambda x: x.order)
+    ]
 
 
 @app.post("/api/keys")
@@ -204,7 +236,15 @@ async def batch_test(request: Request, req: BatchTestReq):
     results = []
     for key in keys:
         valid, message, ttl = await key_mgr.validate_key(key, model=model)
-        results.append({"id": key.id, "name": key.name, "valid": valid, "message": message, "token_ttl": ttl})
+        results.append(
+            {
+                "id": key.id,
+                "name": key.name,
+                "valid": valid,
+                "message": message,
+                "token_ttl": ttl,
+            }
+        )
     return results
 
 
@@ -266,6 +306,7 @@ async def restore_key(key_id: str, request: Request):
 
 # --- Proxy API Keys CRUD ---
 
+
 class AddApiKeyReq(BaseModel):
     name: str
 
@@ -274,7 +315,16 @@ class AddApiKeyReq(BaseModel):
 async def list_api_keys(request: Request):
     if err := _verify_admin(request):
         return err
-    return [{"id": k.id, "name": k.name, "key": k.key, "auto_continue": k.auto_continue, "created_at": k.created_at} for k in config_mgr.config.settings.api_keys]
+    return [
+        {
+            "id": k.id,
+            "name": k.name,
+            "key": k.key,
+            "auto_continue": k.auto_continue,
+            "created_at": k.created_at,
+        }
+        for k in config_mgr.config.settings.api_keys
+    ]
 
 
 @app.post("/api/api-keys")
@@ -306,10 +356,17 @@ async def update_api_key(key_id: str, request: Request, req: UpdateApiKeyReq):
     entry = config_mgr.update_api_key(key_id, **fields)
     if not entry:
         return _err("Key not found", 404)
-    return {"id": entry.id, "name": entry.name, "key": entry.key, "auto_continue": entry.auto_continue, "created_at": entry.created_at}
+    return {
+        "id": entry.id,
+        "name": entry.name,
+        "key": entry.key,
+        "auto_continue": entry.auto_continue,
+        "created_at": entry.created_at,
+    }
 
 
 # --- Settings ---
+
 
 class UpdateSettingsReq(BaseModel):
     rotation_mode: str | None = None
@@ -354,6 +411,7 @@ async def update_settings(request: Request, req: UpdateSettingsReq):
 
 # --- Stats ---
 
+
 @app.get("/api/stats")
 async def get_stats(request: Request):
     if err := _verify_admin(request):
@@ -372,6 +430,7 @@ async def get_logs(request: Request, limit: int = 100, offset: int = 0):
 
 # --- Health ---
 
+
 @app.get("/health")
 async def health():
     return {"status": "ok"}
@@ -389,6 +448,8 @@ if STATIC_DIR.exists():
             return FileResponse(file)
         return FileResponse(STATIC_DIR / "index.html")
 
+
 if __name__ == "__main__":
     import os, uvicorn
+
     uvicorn.run(app, host="0.0.0.0", port=int(os.environ.get("PORT", "8080")))

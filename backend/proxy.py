@@ -13,10 +13,26 @@ from logs import LogManager, LogEntry
 logger = logging.getLogger("proxy")
 
 MODELS = [
-    {"id": "claude-opus-4-6", "name": "Claude Opus 4.6"},
-    {"id": "claude-sonnet-4-6", "name": "Claude Sonnet 4.6"},
-    {"id": "claude-haiku-4-5-20251001", "name": "Claude Haiku 4.5"},
+    # Anthropic Claude (via /v1/messages)
+    {"id": "claude-opus-4-6", "name": "Claude Opus 4.6", "provider": "anthropic"},
+    {"id": "claude-sonnet-4-6", "name": "Claude Sonnet 4.6", "provider": "anthropic"},
+    {
+        "id": "claude-haiku-4-5-20251001",
+        "name": "Claude Haiku 4.5",
+        "provider": "anthropic",
+    },
+    # OpenAI GPT (via /v1/responses)
+    {"id": "gpt-5", "name": "GPT-5", "provider": "openai"},
+    {"id": "gpt-5.1", "name": "GPT-5.1", "provider": "openai"},
+    {"id": "gpt-5.1-codex", "name": "GPT-5.1 Codex", "provider": "openai"},
+    {"id": "gpt-5.2-codex", "name": "GPT-5.2 Codex", "provider": "openai"},
+    {"id": "gpt-5.3-codex", "name": "GPT-5.3 Codex", "provider": "openai"},
+    {"id": "gpt-5.4-2026-03-05", "name": "GPT-5.4", "provider": "openai"},
+    {"id": "gpt-5-codex", "name": "GPT-5 Codex", "provider": "openai"},
+    {"id": "gpt-5-mini-2025-08-07", "name": "GPT-5 Mini", "provider": "openai"},
 ]
+
+OPENAI_MODELS = {m["id"] for m in MODELS if m.get("provider") == "openai"}
 
 NON_RETRYABLE_STATUSES = {400, 401, 402, 403, 404, 429}
 RETRY_DELAY_S = 0.75
@@ -676,3 +692,244 @@ def _json_error(message: str, status: int = 502) -> Response:
         status_code=status,
         media_type="application/json",
     )
+
+
+# ---------------------------------------------------------------------------
+# OpenAI Responses API proxy (/v1/responses)
+# ---------------------------------------------------------------------------
+
+OPENAI_PROXY_BASE = "https://cloud.gitlab.com/ai/v1/proxy/openai"
+
+
+async def proxy_openai_responses(
+    request: Request, key_mgr: KeyManager, log_mgr: LogManager
+) -> Response:
+    body = await request.body()
+    try:
+        payload = json.loads(body)
+        is_stream = payload.get("stream", False)
+        model = payload.get("model", "")
+    except Exception:
+        is_stream = False
+        model = ""
+        payload = {}
+
+    max_retries = key_mgr.settings.max_retries
+
+    if is_stream:
+        tried: set[str] = set()
+        keys = []
+        for _ in range(max_retries + 1):
+            key = key_mgr.select_key(exclude_ids=tried)
+            if not key:
+                break
+            tried.add(key.id)
+            keys.append(key)
+        if not keys:
+            return _json_error("No available keys", 503)
+        return _openai_stream(request, payload, keys, key_mgr, log_mgr, time.time())
+
+    # Non-streaming
+    tried_ns: set[str] = set()
+    last_result: Response | None = None
+    for attempt in range(max_retries + 1):
+        key = key_mgr.select_key(exclude_ids=tried_ns)
+        if not key:
+            return last_result or _json_error("No available keys", 503)
+        tried_ns.add(key.id)
+        start_time = time.time()
+
+        try:
+            entry = await key_mgr.get_token(key.pat)
+        except Exception as e:
+            logger.error(f"Token fetch failed for '{key.name}': {e}")
+            continue
+
+        target = f"{OPENAI_PROXY_BASE}/v1/responses"
+        fwd_headers = {
+            "content-type": "application/json",
+            "authorization": f"Bearer {entry.token}",
+        }
+        fwd_headers.update(entry.headers)
+
+        try:
+            async with httpx.AsyncClient(
+                timeout=httpx.Timeout(300, connect=30)
+            ) as client:
+                resp = await client.post(target, content=body, headers=fwd_headers)
+        except httpx.HTTPError as e:
+            if is_ignorable_error(e):
+                return _json_error("Client disconnected", 499)
+            logger.error(f"Upstream error for '{key.name}': {e}")
+            continue
+
+        duration_ms = int((time.time() - start_time) * 1000)
+
+        if 200 <= resp.status_code < 400:
+            key_mgr.record_success(key)
+            # Extract usage from OpenAI Responses API format
+            usage = {}
+            try:
+                data = resp.json()
+                u = data.get("usage", {})
+                usage = {
+                    "input_tokens": u.get("input_tokens", 0),
+                    "output_tokens": u.get("output_tokens", 0),
+                }
+            except Exception:
+                pass
+            key_mgr.record_usage(
+                key, usage.get("input_tokens", 0), usage.get("output_tokens", 0)
+            )
+            log_mgr.add(
+                LogEntry(
+                    key_id=key.id,
+                    key_name=key.name,
+                    model=model,
+                    status=resp.status_code,
+                    duration_ms=duration_ms,
+                    input_tokens=usage.get("input_tokens", 0),
+                    output_tokens=usage.get("output_tokens", 0),
+                )
+            )
+            return Response(
+                content=resp.content,
+                status_code=resp.status_code,
+                media_type="application/json",
+            )
+
+        last_result = Response(
+            content=resp.content,
+            status_code=resp.status_code,
+            media_type="application/json",
+        )
+        if resp.status_code == 401:
+            key_mgr.invalidate_token(key.pat)
+        if resp.status_code not in (402, 499):
+            key_mgr.record_failure(key)
+        log_mgr.add(
+            LogEntry(
+                key_id=key.id,
+                key_name=key.name,
+                model=model,
+                status=resp.status_code,
+                duration_ms=duration_ms,
+                error=f"HTTP {resp.status_code}",
+            )
+        )
+        logger.warning(
+            f"Attempt {attempt + 1}/{max_retries + 1} failed for '{key.name}' (HTTP {resp.status_code})"
+        )
+
+        if resp.status_code in NON_RETRYABLE_STATUSES:
+            return last_result
+
+    return last_result or _json_error("All retries exhausted", 502)
+
+
+def _openai_stream(
+    request: Request,
+    payload: dict,
+    keys: list,
+    key_mgr: KeyManager,
+    log_mgr: LogManager,
+    start_time: float,
+) -> StreamingResponse:
+    model = payload.get("model", "")
+
+    async def generate():
+        total_input = 0
+        total_output = 0
+
+        target = f"{OPENAI_PROXY_BASE}/v1/responses"
+
+        selected_key = None
+        resp = None
+        client = None
+
+        for key in keys:
+            try:
+                entry = await key_mgr.get_token(key.pat)
+            except Exception as e:
+                logger.warning(f"Token fetch failed for '{key.name}': {e}")
+                continue
+            fwd_headers = {
+                "content-type": "application/json",
+                "authorization": f"Bearer {entry.token}",
+                "accept": "text/event-stream",
+            }
+            fwd_headers.update(entry.headers)
+            c = httpx.AsyncClient(timeout=httpx.Timeout(300, connect=30))
+            try:
+                r = await c.send(
+                    c.build_request(
+                        "POST",
+                        target,
+                        content=json.dumps(payload).encode(),
+                        headers=fwd_headers,
+                    ),
+                    stream=True,
+                )
+                if r.status_code == 200:
+                    selected_key, resp, client = key, r, c
+                    break
+                error_body = await r.aread()
+                await r.aclose()
+                await c.aclose()
+                _log_result(
+                    key, model, start_time, 0, 0, False, key_mgr, log_mgr, r.status_code
+                )
+                if r.status_code in NON_RETRYABLE_STATUSES:
+                    yield error_body
+                    return
+            except Exception as e:
+                try:
+                    await c.aclose()
+                except Exception:
+                    pass
+                logger.warning(f"Connection failed for '{key.name}': {e}")
+
+        if not selected_key or not resp or not client:
+            yield json.dumps({"error": {"message": "No available keys"}}).encode()
+            return
+
+        # Stream raw SSE from OpenAI
+        try:
+            async for chunk in resp.aiter_bytes():
+                yield chunk
+            await resp.aclose()
+            await client.aclose()
+            _log_result(
+                selected_key,
+                model,
+                start_time,
+                total_input,
+                total_output,
+                True,
+                key_mgr,
+                log_mgr,
+            )
+        except Exception as e:
+            try:
+                await resp.aclose()
+            except Exception:
+                pass
+            try:
+                await client.aclose()
+            except Exception:
+                pass
+            if not is_ignorable_error(e):
+                logger.warning(f"OpenAI stream error: {e}")
+            _log_result(
+                selected_key,
+                model,
+                start_time,
+                total_input,
+                total_output,
+                False,
+                key_mgr,
+                log_mgr,
+                error=f"Stream error: {e}",
+            )
+
+    return StreamingResponse(generate(), media_type="text/event-stream")
