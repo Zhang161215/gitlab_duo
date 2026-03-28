@@ -402,6 +402,7 @@ def _stream_with_continuation(
                 yield _close_events(
                     client_block_idx,
                     client_block_open,
+                    total_input,
                     total_output,
                     stop_reason or "max_tokens",
                 )
@@ -564,6 +565,7 @@ def _stream_with_continuation(
                 yield _close_events(
                     client_block_idx,
                     client_block_open,
+                    total_input,
                     total_output,
                     cont_stop_reason or "end_turn",
                 )
@@ -587,6 +589,7 @@ def _stream_with_continuation(
         yield _close_events(
             client_block_idx,
             client_block_open,
+            total_input,
             total_output,
             cont_stop_reason or stop_reason or "end_turn",
         )
@@ -664,7 +667,11 @@ def _sse_error(error_body: bytes) -> bytes:
 
 
 def _close_events(
-    block_idx: int, block_open: bool, output_tokens: int, stop_reason: str = "end_turn"
+    block_idx: int,
+    block_open: bool,
+    input_tokens: int,
+    output_tokens: int,
+    stop_reason: str = "end_turn",
 ) -> bytes:
     parts = []
     if block_open:
@@ -681,7 +688,10 @@ def _close_events(
                 {
                     "type": "message_delta",
                     "delta": {"stop_reason": stop_reason, "stop_sequence": None},
-                    "usage": {"output_tokens": output_tokens},
+                    "usage": {
+                        "input_tokens": input_tokens,
+                        "output_tokens": output_tokens,
+                    },
                 }
             ),
         )
