@@ -22,15 +22,14 @@ MODELS = [
         "provider": "anthropic",
     },
     # OpenAI GPT (via /v1/responses)
-    {"id": "gpt-5", "name": "GPT-5", "provider": "openai"},
-    {"id": "gpt-5.1", "name": "GPT-5.1", "provider": "openai"},
-    {"id": "gpt-5.1-codex", "name": "GPT-5.1 Codex", "provider": "openai"},
-    {"id": "gpt-5.2-codex", "name": "GPT-5.2 Codex", "provider": "openai"},
     {"id": "gpt-5.3-codex", "name": "GPT-5.3 Codex", "provider": "openai"},
-    {"id": "gpt-5.4-2026-03-05", "name": "GPT-5.4", "provider": "openai"},
-    {"id": "gpt-5-codex", "name": "GPT-5 Codex", "provider": "openai"},
-    {"id": "gpt-5-mini-2025-08-07", "name": "GPT-5 Mini", "provider": "openai"},
+    {"id": "gpt-5.4", "name": "GPT-5.4", "provider": "openai"},
 ]
+
+# gpt-5.4 is an alias for gpt-5.4-2026-03-05
+OPENAI_MODEL_MAP = {
+    "gpt-5.4": "gpt-5.4-2026-03-05",
+}
 
 OPENAI_MODELS = {m["id"] for m in MODELS if m.get("provider") == "openai"}
 
@@ -713,6 +712,11 @@ async def proxy_openai_responses(
         is_stream = False
         model = ""
         payload = {}
+
+    # Apply model alias mapping (e.g. gpt-5.4 -> gpt-5.4-2026-03-05)
+    if model in OPENAI_MODEL_MAP:
+        payload["model"] = OPENAI_MODEL_MAP[model]
+        body = json.dumps(payload).encode()
 
     max_retries = key_mgr.settings.max_retries
 
