@@ -1,0 +1,14 @@
+services:
+  duo-manager:
+    build: .
+    ports:
+      - "${PORT:-8080}:${PORT:-8080}"
+    volumes:
+      - data:/app/data
+    environment:
+      - ADMIN_PASSWORD=${ADMIN_PASSWORD:-}
+      - PORT=${PORT:-8080}
+    restart: unless-stopped
+
+volumes:
+  data:
