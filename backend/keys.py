@@ -10,7 +10,12 @@ from config import ConfigManager, KeyConfig
 
 logger = logging.getLogger("keys")
 
-IGNORABLE_ERRORS = {"context canceled", "connection reset", "broken pipe", "closed network"}
+IGNORABLE_ERRORS = {
+    "context canceled",
+    "connection reset",
+    "broken pipe",
+    "closed network",
+}
 
 
 @dataclass
@@ -51,8 +56,11 @@ class KeyManager:
         self._rr_index: int = 0
         self._wrr_state: dict[str, int] = {}  # key_id -> current_weight
         self._stats: dict[str, KeyStats] = {}
+        self._cooldowns: dict[str, float] = {}  # key_id -> cooldown_until timestamp
         self._refresh_task: asyncio.Task | None = None
         self._validate_task: asyncio.Task | None = None
+
+    QUOTA_COOLDOWN_S = 30 * 60  # 30 min cooldown for 402 quota exceeded
 
     @property
     def settings(self):
@@ -61,14 +69,25 @@ class KeyManager:
     @property
     def active_keys(self) -> list[KeyConfig]:
         return sorted(
-            [k for k in self.config_mgr.config.keys if k.enabled and k.status == "active"],
+            [
+                k
+                for k in self.config_mgr.config.keys
+                if k.enabled and k.status == "active"
+            ],
             key=lambda k: k.order,
         )
 
     @property
-    def enabled_keys(self) -> list[KeyConfig]:
+    def active_keys(self) -> list[KeyConfig]:
+        now = time.time()
         return sorted(
-            [k for k in self.config_mgr.config.keys if k.enabled],
+            [
+                k
+                for k in self.config_mgr.config.keys
+                if k.enabled
+                and k.status == "active"
+                and self._cooldowns.get(k.id, 0) <= now
+            ],
             key=lambda k: k.order,
         )
 
@@ -97,7 +116,9 @@ class KeyManager:
                 json={},
             )
             if resp.status_code not in (200, 201):
-                raise RuntimeError(f"Token fetch failed: {resp.status_code} {resp.text}")
+                raise RuntimeError(
+                    f"Token fetch failed: {resp.status_code} {resp.text}"
+                )
             data = resp.json()
             token = data.get("token", "")
             headers = data.get("headers", {}) or {}
@@ -195,14 +216,27 @@ class KeyManager:
         if threshold > 0 and key.failure_count >= threshold:
             key.status = "invalid"
             self.invalidate_token(key.pat)
-            logger.warning(f"Key '{key.name}' blacklisted after {key.failure_count} failures")
+            logger.warning(
+                f"Key '{key.name}' blacklisted after {key.failure_count} failures"
+            )
         self.config_mgr._save()
 
     def restore_key(self, key_id: str) -> KeyConfig | None:
         key = self.config_mgr.update_key(key_id, status="active", failure_count=0)
         if key:
+            self._cooldowns.pop(key_id, None)
             logger.info(f"Key '{key.name}' restored")
         return key
+
+    def set_cooldown(self, key: KeyConfig, seconds: float | None = None):
+        """Temporarily exclude a key from selection (e.g. after 402 quota exhausted)."""
+        duration = seconds if seconds is not None else self.QUOTA_COOLDOWN_S
+        self._cooldowns[key.id] = time.time() + duration
+        logger.info(f"Key '{key.name}' cooled down for {int(duration)}s")
+
+    def get_cooldown_remaining(self, key: KeyConfig) -> int:
+        until = self._cooldowns.get(key.id, 0)
+        return max(0, int(until - time.time()))
 
     def cleanup_key(self, key_id: str, pat: str):
         self._stats.pop(key_id, None)
@@ -226,8 +260,11 @@ class KeyManager:
             "total_output_tokens": total_output,
             "per_key": {
                 kid: {
-                    "total": s.total_requests, "success": s.success, "failures": s.failures,
-                    "input_tokens": s.input_tokens, "output_tokens": s.output_tokens,
+                    "total": s.total_requests,
+                    "success": s.success,
+                    "failures": s.failures,
+                    "input_tokens": s.input_tokens,
+                    "output_tokens": s.output_tokens,
                     "last_used": s.last_used,
                 }
                 for kid, s in self._stats.items()
@@ -236,12 +273,16 @@ class KeyManager:
 
     def get_key_status(self, key: KeyConfig) -> dict:
         token = self._tokens.get(key.pat)
+        cooldown_remaining = self.get_cooldown_remaining(key)
         return {
             "has_token": token is not None and token.valid if token else False,
             "token_ttl": token.ttl if token else 0,
+            "cooldown_remaining": cooldown_remaining,
         }
 
-    async def validate_key(self, key: KeyConfig, model: str = "claude-sonnet-4-6") -> tuple[bool, str, int]:
+    async def validate_key(
+        self, key: KeyConfig, model: str = "claude-sonnet-4-6"
+    ) -> tuple[bool, str, int]:
         """Full validation: token refresh + minimal model request. Returns (valid, message, token_ttl)."""
         try:
             self.invalidate_token(key.pat)
@@ -311,12 +352,18 @@ class KeyManager:
         while True:
             interval = max(self.settings.validation_interval, 1) * 60
             await asyncio.sleep(interval)
-            invalid_keys = [k for k in self.config_mgr.config.keys if k.enabled and k.status == "invalid"]
+            invalid_keys = [
+                k
+                for k in self.config_mgr.config.keys
+                if k.enabled and k.status == "invalid"
+            ]
             if not invalid_keys:
                 continue
             logger.info(f"Validating {len(invalid_keys)} invalid key(s)...")
             for key in invalid_keys:
-                valid, msg, _ = await self.validate_key(key, model=self.settings.test_model)
+                valid, msg, _ = await self.validate_key(
+                    key, model=self.settings.test_model
+                )
                 if valid:
                     key.status = "active"
                     key.failure_count = 0

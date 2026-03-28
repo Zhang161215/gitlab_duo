@@ -33,8 +33,35 @@ OPENAI_MODEL_MAP = {
 
 OPENAI_MODELS = {m["id"] for m in MODELS if m.get("provider") == "openai"}
 
-NON_RETRYABLE_STATUSES = {400, 401, 402, 403, 404, 429}
+NON_RETRYABLE_STATUSES = {400, 401, 402, 403, 404}
 RETRY_DELAY_S = 0.75
+MAX_429_WAIT_S = 30  # max seconds to wait on 429 before giving up
+
+
+def _get_retry_after(resp_headers: dict | None) -> float | None:
+    """Extract retry delay from response headers. Returns seconds or None."""
+    if not resp_headers:
+        return None
+    # Standard header
+    ra = resp_headers.get("retry-after") or resp_headers.get("Retry-After")
+    if ra:
+        try:
+            return min(float(ra), MAX_429_WAIT_S)
+        except (TypeError, ValueError):
+            pass
+    # Anthropic-specific header
+    reset = resp_headers.get("x-ratelimit-reset")
+    if reset:
+        try:
+            from datetime import datetime, timezone
+
+            reset_time = datetime.fromisoformat(reset.replace("Z", "+00:00"))
+            delta = (reset_time - datetime.now(timezone.utc)).total_seconds()
+            if 0 < delta <= MAX_429_WAIT_S:
+                return delta
+        except Exception:
+            pass
+    return None
 
 
 async def proxy_messages(
@@ -87,11 +114,11 @@ async def proxy_messages(
         tried.add(key.id)
         start_time = time.time()
 
-        result = await _do_proxy(request, key_mgr, key, body, is_stream)
+        result = await _do_proxy(request, key_mgr, key, payload, is_stream)
         if isinstance(result, tuple):
-            response, usage = result
+            response, usage, resp_headers = result
         else:
-            response, usage = result, {}
+            response, usage, resp_headers = result, {}, {}
 
         duration_ms = int((time.time() - start_time) * 1000)
         if 200 <= response.status_code < 400:
@@ -115,8 +142,10 @@ async def proxy_messages(
         last_result = response
         if response.status_code == 401:
             key_mgr.invalidate_token(key.pat)
-        # 402 = quota exceeded, not a key failure — don't count toward blacklist
-        if response.status_code not in (402, 499):
+        # 402 = quota exceeded — cooldown this key, don't count as failure
+        if response.status_code == 402:
+            key_mgr.set_cooldown(key)
+        elif response.status_code != 499:
             key_mgr.record_failure(key)
         log_mgr.add(
             LogEntry(
@@ -131,6 +160,12 @@ async def proxy_messages(
         logger.warning(
             f"Attempt {attempt + 1}/{max_retries + 1} failed for '{key.name}' (HTTP {response.status_code})"
         )
+        # 429: wait and retry with same key (don't count as tried)
+        if response.status_code == 429:
+            wait = _get_retry_after(resp_headers) or 5.0
+            logger.info(f"429 rate limited, waiting {wait:.1f}s before retry...")
+            await asyncio.sleep(wait)
+            tried.discard(key.id)  # allow re-selecting this key
 
     return last_result or _json_error("All retries exhausted", 502)
 
@@ -239,13 +274,19 @@ def _stream_with_continuation(
                     selected_key, resp, client = key, r, c
                     break
                 error_body = await r.aread()
+                resp_hdrs = dict(r.headers)
                 await r.aclose()
                 await c.aclose()
                 _log_result(
                     key, model, start_time, 0, 0, False, key_mgr, log_mgr, r.status_code
                 )
+                if r.status_code == 429:
+                    wait = _get_retry_after(resp_hdrs) or 5.0
+                    logger.info(f"Stream 429 for '{key.name}', waiting {wait:.1f}s...")
+                    await asyncio.sleep(wait)
+                    continue
                 if r.status_code in NON_RETRYABLE_STATUSES:
-                    yield error_body
+                    yield _sse_error(error_body)
                     return
             except Exception as e:
                 try:
@@ -583,8 +624,10 @@ def _log_result(
             )
         )
     else:
-        # 402 = quota exceeded, not a key failure — don't count toward blacklist
-        if status != 402:
+        # 402 = quota exceeded — cooldown this key, don't count as failure
+        if status == 402:
+            key_mgr.set_cooldown(key)
+        elif status != 499:
             key_mgr.record_failure(key)
         log_mgr.add(
             LogEntry(
@@ -601,6 +644,23 @@ def _log_result(
 
 def _sse(event_type: str, data_str: str) -> bytes:
     return f"event: {event_type}\ndata: {data_str}\n\n".encode()
+
+
+def _sse_error(error_body: bytes) -> bytes:
+    """Wrap a raw error response body as an SSE error event."""
+    try:
+        err = json.loads(error_body)
+    except (json.JSONDecodeError, ValueError):
+        err = {
+            "error": {
+                "type": "proxy_error",
+                "message": error_body.decode(errors="replace")[:500],
+            }
+        }
+    # Ensure it has the expected structure
+    if "type" not in err:
+        err = {"type": "error", "error": err.get("error", err)}
+    return _sse("error", json.dumps(err))
 
 
 def _close_events(
@@ -636,7 +696,7 @@ def _close_events(
 
 
 async def _do_proxy(
-    request: Request, key_mgr: KeyManager, key, body: bytes, is_stream: bool
+    request: Request, key_mgr: KeyManager, key, payload: dict, is_stream: bool
 ):
     try:
         entry = await key_mgr.get_token(key.pat)
@@ -652,6 +712,7 @@ async def _do_proxy(
     }
     fwd_headers.update(entry.headers)
 
+    body = json.dumps(payload).encode()
     try:
         return await _direct_proxy(target, body, fwd_headers)
     except httpx.HTTPError as e:
@@ -664,7 +725,7 @@ async def _do_proxy(
 
 async def _direct_proxy(
     target: str, body: bytes, headers: dict
-) -> tuple[Response, dict]:
+) -> tuple[Response, dict, dict]:
     async with httpx.AsyncClient(timeout=httpx.Timeout(300, connect=30)) as client:
         resp = await client.post(target, content=body, headers=headers)
         usage = {}
@@ -678,11 +739,16 @@ async def _direct_proxy(
                 }
             except Exception:
                 pass
-        return Response(
-            content=resp.content,
-            status_code=resp.status_code,
-            media_type="application/json",
-        ), usage
+        resp_headers = dict(resp.headers)
+        return (
+            Response(
+                content=resp.content,
+                status_code=resp.status_code,
+                media_type="application/json",
+            ),
+            usage,
+            resp_headers,
+        )
 
 
 def _json_error(message: str, status: int = 502) -> Response:
@@ -809,7 +875,9 @@ async def proxy_openai_responses(
         )
         if resp.status_code == 401:
             key_mgr.invalidate_token(key.pat)
-        if resp.status_code not in (402, 499):
+        if resp.status_code == 402:
+            key_mgr.set_cooldown(key)
+        elif resp.status_code != 499:
             key_mgr.record_failure(key)
         log_mgr.add(
             LogEntry(
@@ -878,13 +946,21 @@ def _openai_stream(
                     selected_key, resp, client = key, r, c
                     break
                 error_body = await r.aread()
+                resp_hdrs = dict(r.headers)
                 await r.aclose()
                 await c.aclose()
                 _log_result(
                     key, model, start_time, 0, 0, False, key_mgr, log_mgr, r.status_code
                 )
+                if r.status_code == 429:
+                    wait = _get_retry_after(resp_hdrs) or 5.0
+                    logger.info(
+                        f"OpenAI stream 429 for '{key.name}', waiting {wait:.1f}s..."
+                    )
+                    await asyncio.sleep(wait)
+                    continue
                 if r.status_code in NON_RETRYABLE_STATUSES:
-                    yield error_body
+                    yield _sse_error(error_body)
                     return
             except Exception as e:
                 try:
