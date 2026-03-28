@@ -99,8 +99,13 @@ async def proxy_messages(
     _strip_unsupported_fields(payload)
 
     # Cap max_tokens to prevent GitLab ~93s upstream timeout
+    # Skip cap if thinking mode is enabled (budget_tokens must be < max_tokens)
     cap = key_mgr.settings.max_tokens_cap
-    if cap > 0 and payload:
+    has_thinking = payload.get("thinking") and payload["thinking"].get("type") in (
+        "enabled",
+        "adaptive",
+    )
+    if cap > 0 and payload and not has_thinking:
         orig = payload.get("max_tokens")
         if orig is None or orig > cap:
             payload["max_tokens"] = cap
