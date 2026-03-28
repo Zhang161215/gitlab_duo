@@ -226,6 +226,9 @@ def _stream_with_continuation(
         client_block_open = False
         cap_triggered = False
         client_text_len = 0
+        suppress_tail = (
+            False  # suppress original message_delta/message_stop for usage patching
+        )
 
         def _parse_sse_line(stripped: str):
             nonlocal acc_text, total_input, total_output, stop_reason, got_message_stop
@@ -330,8 +333,15 @@ def _stream_with_continuation(
                     line, parse_buf = parse_buf.split("\n", 1)
                     _parse_sse_line(line.strip())
 
+                # Once we see message_delta or message_stop, suppress the rest
+                # so we can emit our own patched version with correct usage
+                if got_message_stop or stop_reason is not None:
+                    suppress_tail = True
+
                 if cap_triggered:
                     pass
+                elif suppress_tail and not cap_triggered:
+                    pass  # suppress original message_delta/message_stop
                 elif stop_reason == "max_tokens" and max_cont > 0 and auto_continue:
                     cap_triggered = True
                 elif in_tool_use:
@@ -405,6 +415,14 @@ def _stream_with_continuation(
                 f"Cap hit (max_tokens), entering continuation ({len(acc_text)} chars)"
             )
         elif got_message_stop:
+            # Emit patched message_delta + message_stop with correct usage
+            yield _close_events(
+                client_block_idx,
+                client_block_open,
+                total_input,
+                total_output,
+                stop_reason or "end_turn",
+            )
             _log_result(
                 selected_key,
                 model,
