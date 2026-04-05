@@ -228,6 +228,11 @@ class KeyManager:
             logger.info(f"Key '{key.name}' restored")
         return key
 
+    def disable_quota_exhausted(self, key: KeyConfig):
+        self.config_mgr.update_key(key.id, enabled=False)
+        self._cooldowns.pop(key.id, None)
+        logger.warning(f"Key '{key.name}' disabled — quota exhausted (402)")
+
     def set_cooldown(self, key: KeyConfig, seconds: float | None = None):
         """Temporarily exclude a key from selection (e.g. after 402 quota exhausted)."""
         duration = seconds if seconds is not None else self.QUOTA_COOLDOWN_S

@@ -163,9 +163,9 @@ async def proxy_messages(
         last_result = response
         if response.status_code == 401:
             key_mgr.invalidate_token(key.pat)
-        # 402 = quota exceeded — cooldown this key, don't count as failure
+        # 402 = quota exhausted — disable key (credits won't recover with time)
         if response.status_code == 402:
-            key_mgr.set_cooldown(key)
+            key_mgr.disable_quota_exhausted(key)
         elif response.status_code != 499:
             key_mgr.record_failure(key)
         log_mgr.add(
@@ -666,9 +666,8 @@ def _log_result(
             )
         )
     else:
-        # 402 = quota exceeded — cooldown this key, don't count as failure
         if status == 402:
-            key_mgr.set_cooldown(key)
+            key_mgr.disable_quota_exhausted(key)
         elif status != 499:
             key_mgr.record_failure(key)
         log_mgr.add(
@@ -925,7 +924,7 @@ async def proxy_openai_responses(
         if resp.status_code == 401:
             key_mgr.invalidate_token(key.pat)
         if resp.status_code == 402:
-            key_mgr.set_cooldown(key)
+            key_mgr.disable_quota_exhausted(key)
         elif resp.status_code != 499:
             key_mgr.record_failure(key)
         log_mgr.add(
